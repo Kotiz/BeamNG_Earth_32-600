@@ -1410,7 +1410,8 @@ class MarkingsTest(unittest.TestCase):
         """nodes (secrossings.nodes; Germany reads its de_crossings, Sweden's codes are not its): a mapped zebra on the
         stem is painted Z 293 (bars 0.50 m, 0.50 m apart: Sweden's M15_LOOK) and its kerb ramps added to the junction's;
         one near signals is not (VwV-StVO zu § 26 Rn. 5), nor an unmarked one (its ramps are), nor Sweden's M16
-        squares; outside Germany none."""
+        squares; outside Germany the junctions' paint is as today (the map's crossings there paint as every other
+        country's, roads.build_tile's other branch)."""
         import secrossings
         feats = self.layer(self.STRETCH)
         nodes = {"crossings": [(120.0, 80.0, secrossings.M15), (120.0, 190.0, secrossings.M15),
@@ -1431,7 +1432,8 @@ class MarkingsTest(unittest.TestCase):
         nowhere = lambda lon, lat: np.zeros(np.size(lon), bool)     # noqa: E731
         with mock.patch.object(germany, "contains", nowhere):
             out, _ = self.build(feats, signals=signals, nodes=nodes)
-        self.assertEqual(out, self.build(feats, False, signals=signals, nodes=nodes)[0], "outside Germany: as today")
+        self.assertEqual(out, self.build(feats, False, signals=signals)[0],
+                         "outside Germany: the junctions' paint as today")
 
     def test_zebras_only_in_town_at_50(self):
         """VwV-StVO zu § 26 Rn. 1: a Fußgängerüberweg only in town and on a road of at most 50 km/h: the stem's mapped

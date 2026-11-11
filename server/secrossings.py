@@ -5,6 +5,8 @@ look. A Swedish street is painted by rule (TSFS 2010:171): M15 only where a B3 s
 only at a B2 or at signals (3 kap. 1, 3 §§), so nothing at a junction under the right-hand rule. OpenStreetMap maps
 these nodes (Overture's infrastructure layer) and most say whether there is paint. Tallied 2026-11-02, within 1.5 km of
 the middle of Borås, Göteborg, Stockholm, Malmö and Umeå: 7427 crossings, 95% within 2 m of a road's centreline.
+Everywhere else the same crossings paint as their tags say (roads.build_tile's other countries, the guesses giving way
+where the map has one too) and a crossing's refuge island (crossing:island) bars the road (refuges).
 
 A crossing with no word on its paint counts as painted. crossing=uncontrolled is OpenStreetMap's word for a marked
 crossing without signals; of the signal crossings that say, 614 of 722 have a zebra; of the bare ones that say, 296 of
@@ -44,8 +46,85 @@ def wanted(country, de=False):
     """Whether a place's road tiles and road graph read the map's crossing, stop and give-way nodes (read): Sweden's
     always (its paint and signs are the map's), Germany's when its junction signs are on (de: the setting on and the
     junctions the tile decides, or the graph's window, reaching into Germany: designs.reads_here; the country code
-    alone is the nearest airport's). Nowhere else: no read, the guesses as before."""
+    alone is the nearest airport's). Nowhere else: the crossings, their refuges and the mini-roundabouts are the map's
+    all the same (earthd reads everywhere and keeps those), only the signs fall back to the guesses."""
     return str(country or "").upper() == "SE" or bool(de)
+
+
+GUESS_NEAR_M = 5.0              # m a guessed crosswalk's middle keeps from the mapped one at the same crossing
+GUESS_COS = 0.5                 # cos of the bands' directions: the same road's, not a neighbouring arm's
+REFUGE_HALF_L_M = 3.0           # m of island each way along the road from a crossing's refuge node
+REFUGE_TAKEN_M = 5.0            # m a refuge node keeps from an island a roundabout's splitter already built
+
+
+def unguessed(guessed, mapped):
+    """junctions.find's guessed crosswalks that no mapped crosswalk (place's) already paints: the map's node and the
+    guess at the same crossing would paint it twice. A guess goes when its middle is within GUESS_NEAR_M of a mapped
+    band and the bands lie across the same road (their directions' cos at least GUESS_COS: a neighbouring arm's
+    crosswalk stands across another road, near but not the same crossing)."""
+    if not guessed or mapped is None or not len(mapped):
+        return guessed
+    a = np.array([cw["a"][:2] for cw in mapped], np.float64)
+    d = np.array([cw["b"][:2] for cw in mapped], np.float64) - a
+    l2 = np.maximum((d * d).sum(1), 1e-9)
+    keep = []
+    for cw in guessed:
+        ga, gb = np.asarray(cw["a"][:2], np.float64), np.asarray(cw["b"][:2], np.float64)
+        m, gd = 0.5 * (ga + gb), gb - ga
+        gl = max(float(np.hypot(*gd)), 1e-9)
+        t = np.clip(((m - a) * d).sum(1) / l2, 0.0, 1.0)
+        near = np.hypot(*(a + d * t[:, None] - m).T) <= GUESS_NEAR_M
+        same = np.abs((d[:, 0] * gd[0] + d[:, 1] * gd[1]) / (np.sqrt(l2) * gl)) >= GUESS_COS
+        if not bool((near & same).any()):
+            keep.append(cw)
+    return keep
+
+
+def refuges(roads_list, refuges, taken=None):
+    """[{"outline": (k, 3), "fid"}] of the refuge islands of the map's crossing nodes with crossing:island (nodes'
+    "islands") away from the roundabout approaches (taken: the splitters' outlines' middle points,
+    roundabouts.splitters'): a bar along the road through the node, REFUGE_HALF_L_M each way, roundabouts.SPLIT_HALF_M
+    wide in the middle and roundabouts.SPLIT_TIP_M at its ends, as a splitter island is. None where the node is off a
+    road (roundabouts.SPLIT_NODE_M), on a junction (ON_JUNCTION_M) or on a motorway; the node's crosswalk paints over
+    the island, as at the approaches."""
+    if refuges is None or not len(refuges):
+        return []
+    import roundabouts
+    lines = [(fid, spec, np.asarray(pts, np.float64)) for fid, spec, pts, _ in roads_list
+             if spec.kind in ("paved", "cobble") and spec.cls != "motorway" and len(pts) >= 2]
+    if not lines:
+        return []
+    a = np.vstack([pts[:-1, :3] for _, _, pts in lines])
+    b = np.vstack([pts[1:, :3] for _, _, pts in lines])
+    own = np.repeat(np.arange(len(lines)), [len(pts) - 1 for _, _, pts in lines])
+    d = b[:, :2] - a[:, :2]
+    l2 = np.maximum((d * d).sum(1), 1e-9)
+    meet = np.array([arms[0][3][:2] for arms in furniture._arms(roads_list).values() if len(arms) >= 3]).reshape(-1, 2)
+    out = []
+    for node in np.asarray(refuges, np.float64).reshape(-1, 2):
+        if taken is not None and len(taken) and np.hypot(*(taken - node).T).min() < REFUGE_TAKEN_M:
+            continue
+        t = np.clip(((node - a[:, :2]) * d).sum(1) / l2, 0.0, 1.0)
+        q = a[:, :2] + d * t[:, None]
+        off = np.hypot(q[:, 0] - node[0], q[:, 1] - node[1])
+        i = int(np.argmin(off))
+        if off[i] > roundabouts.SPLIT_NODE_M:
+            continue
+        c = q[i]
+        if len(meet) and np.hypot(*(meet - c).T).min() < ON_JUNCTION_M:
+            continue
+        u = d[i] / float(np.sqrt(l2[i]))
+        n = np.array([-u[1], u[0]])
+        z = float(a[i, 2] + t[i] * (b[i, 2] - a[i, 2]))
+        s = np.linspace(-REFUGE_HALF_L_M, REFUGE_HALF_L_M, 9)
+        hw = roundabouts.SPLIT_TIP_M + (roundabouts.SPLIT_HALF_M - roundabouts.SPLIT_TIP_M) \
+            * (1.0 - np.abs(s) / REFUGE_HALF_L_M)
+        outline = np.vstack([c + s[:, None] * u + n * hw[:, None], (c + s[:, None] * u - n * hw[:, None])[::-1]])
+        poly = np.column_stack([outline, np.full(len(outline), z)])
+        if 0.5 * float(np.dot(poly[:, 0], np.roll(poly[:, 1], -1)) - np.dot(poly[:, 1], np.roll(poly[:, 0], -1))) < 0:
+            poly = poly[::-1]
+        out.append({"outline": poly, "fid": lines[own[i]][0]})
+    return out
 
 
 def _marks(tags):

@@ -2142,9 +2142,11 @@ class Server:
         de_nodes = designsmod.reads_here(designsmod.enabled(self.dej_on), anchor.frame, (x - w, y - w, x + w, y + w))
         nodes = secrossings.read(self.mapdata, anchor.frame, keys)
         if nodes is not None and not secrossings.wanted(self.country(anchor), de_nodes):
-            # (outside Sweden and Germany only the mini-roundabouts are the map's everywhere: the mapped
-            # give-way/stop signs stay those countries' experiment)
-            nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": nodes.get("mini_roundabouts")}
+            # (outside Sweden and Germany the mapped give-way/stop signs stay those countries' experiment: the
+            # crossings, their refuge islands and the mini-roundabouts are the map's everywhere)
+            nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": nodes.get("mini_roundabouts"),
+                     "crossings": nodes.get("crossings"), "de_crossings": nodes.get("de_crossings"),
+                     "islands": nodes.get("islands")}
         # (and the cells' road_routes for the German junctions' ref ranks, as blockworker.navgraph reads them)
         de_routes = blockworker._de_routes(self.mapdata, keys) if de_nodes else ()
         tun = {}
@@ -2718,8 +2720,11 @@ class Server:
         de_nodes = designsmod.reads_here(designsmod.enabled(self.dej_on), anchor.frame, designsmod.tile_reach(box))
         sign_nodes = secrossings.read(self.mapdata, anchor.frame, nkeys)
         if sign_nodes is not None and not secrossings.wanted(self.country(anchor), de_nodes):
-            # (as the navgraph's: outside Sweden and Germany only the mini-roundabouts come from the map)
-            sign_nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": sign_nodes.get("mini_roundabouts")}
+            # (as the navgraph's: outside Sweden and Germany the crossings, their refuge islands and the
+            # mini-roundabouts come from the map, the give-way/stop signs do not)
+            sign_nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": sign_nodes.get("mini_roundabouts"),
+                          "crossings": sign_nodes.get("crossings"), "de_crossings": sign_nodes.get("de_crossings"),
+                          "islands": sign_nodes.get("islands")}
         clearance = [] if self.buildings else None     # (build_tile's RoadClearance, PR #629: the powerlines' too)
         roadside_jobs = []
         drives = []

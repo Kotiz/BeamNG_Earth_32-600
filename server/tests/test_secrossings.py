@@ -209,6 +209,66 @@ class PlaceTest(unittest.TestCase):
         self.assertGreater(band["a"][0], 50.0)
 
 
+class UnguessedTest(unittest.TestCase):
+    """The guesses that stand where the map has a crossing go; a neighbouring arm's crosswalk stays."""
+    def gu(self, x, y=0.0, across="y"):
+        if across == "y":
+            return {"a": np.array([x, y + 4.0, 0.0]), "b": np.array([x, y - 4.0, 0.0]), "w": 3.0}
+        return {"a": np.array([x - 4.0, y, 0.0]), "b": np.array([x + 4.0, y, 0.0]), "w": 3.0}
+
+    def mapped(self, x):
+        return [dict(self.gu(x), look=secrossings.M15_LOOK)]
+
+    @staticmethod
+    def mids(cws):
+        return sorted(tuple(np.round(0.5 * (np.asarray(cw["a"][:2], np.float64) + cw["b"][:2]), 3)) for cw in cws)
+
+    def test_the_guess_at_a_mapped_crossing_goes(self):
+        self.assertEqual(self.mids(secrossings.unguessed([self.gu(50.0), self.gu(57.0)], self.mapped(50.0))),
+                         self.mids([self.gu(57.0)]))
+
+    def test_a_neighbouring_arms_guess_stays(self):
+        self.assertEqual(self.mids(secrossings.unguessed([self.gu(50.0, 3.0, across="x")], self.mapped(50.0))),
+                         self.mids([self.gu(50.0, 3.0, across="x")]))
+
+    def test_no_mapped_crossing_keeps_every_guess(self):
+        guess = [self.gu(50.0), self.gu(57.0)]
+        self.assertEqual(self.mids(secrossings.unguessed(guess, [])), self.mids(guess))
+        self.assertEqual(self.mids(secrossings.unguessed(guess, None)), self.mids(guess))
+
+
+class RefugesTest(unittest.TestCase):
+    """A crossing's refuge island (crossing:island): a bar along the road through the node, as a splitter island is."""
+    def test_a_bar_along_the_road_through_the_node(self):
+        got = secrossings.refuges([road("a")], [(60.0, 0.0)])
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["fid"], "a")
+        poly = got[0]["outline"]
+        np.testing.assert_allclose([poly[:, 0].min(), poly[:, 0].max()], [57.0, 63.0])
+        self.assertAlmostEqual(poly[:, 1].max(), 0.8)               # (roundabouts.SPLIT_HALF_M)
+        self.assertAlmostEqual(poly[:, 1].min(), -0.8)
+        np.testing.assert_allclose(poly[:, 2], 0.0)
+        area = 0.5 * float(np.dot(poly[:, 0], np.roll(poly[:, 1], -1)) - np.dot(poly[:, 1], np.roll(poly[:, 0], -1)))
+        self.assertGreater(area, 0.0)
+
+    def test_off_the_road_on_a_junction_or_a_motorway_is_nothing(self):
+        self.assertEqual(secrossings.refuges([road("a")], [(60.0, 5.0)]), [])
+        tee = [road("w", pts=((0.0, 0.0), (50.0, 0.0))), road("e", pts=((50.0, 0.0), (100.0, 0.0))),
+               road("n", pts=((50.0, 0.0), (50.0, 60.0)))]
+        self.assertEqual(secrossings.refuges(tee, [(50.0, 0.0)]), [])
+        self.assertEqual(len(secrossings.refuges(tee, [(50.0, 20.0)])), 1)
+        self.assertEqual(secrossings.refuges([road("a", cls="motorway")], [(60.0, 0.0)]), [])
+
+    def test_where_a_splitters_island_stands_is_taken(self):
+        self.assertEqual(secrossings.refuges([road("a")], [(60.0, 0.0)], taken=np.array([[61.0, 0.5]])), [])
+        self.assertEqual(len(secrossings.refuges([road("a")], [(60.0, 0.0)], taken=np.array([[90.0, 0.0]]))), 1)
+
+    def test_no_refuges_or_no_roads(self):
+        self.assertEqual(secrossings.refuges([road("a")], []), [])
+        self.assertEqual(secrossings.refuges([road("a")], None), [])
+        self.assertEqual(secrossings.refuges([], [(60.0, 0.0)]), [])
+
+
 class StopLinesTest(unittest.TestCase):
     ARM = ("a", roads.Spec(8.0, "paved", True, "tertiary", False), np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]]), 5.0,
            furniture.G_SIGNAL)
@@ -293,12 +353,12 @@ class PriorityTest(unittest.TestCase):
 
 class TileTest(unittest.TestCase):
     """Through build_tile: a street, with the junction's guesses gone and the map's paint in their place."""
-    def tile(self, nodes, signals=None):
+    def tile(self, nodes, signals=None, country="SE"):
         import test_roads as tr
         feats = tr.features([[(-300, 2), (600, 2)], [(100, 2), (100, 300)]], ["tertiary", "residential"])
         urban = lambda la, lo: np.ones(np.shape(la), bool)      # noqa: E731
         return roads.build_tile(tr.FRAME, 0, 0, [feats], lambda a, b: np.zeros(np.shape(a)),
-                                urban, walks=[], country="SE", mph=False, signals=signals, nodes=nodes)
+                                urban, walks=[], country=country, mph=False, signals=signals, nodes=nodes)
 
     def test_no_paint_the_map_does_not_have(self):
         ch = self.tile({"crossings": [], "stop_lines": np.zeros((0, 2)), "priority": np.zeros((0, 3))},
@@ -324,6 +384,31 @@ class TileTest(unittest.TestCase):
         for c in ch:
             if c["m"] == "crossing_white":
                 self.assertEqual(c["tl"], 4.8)
+
+    def test_a_mapped_crossing_elsewhere_too(self):
+        """Poland's mapped crossings (crossing=uncontrolled and the like) paint as Sweden's do, and the road's lines
+        stop at them."""
+        nodes = {"crossings": [(60.0, 2.0, secrossings.M15)], "stop_lines": np.zeros((0, 2)),
+                 "priority": np.zeros((0, 3))}
+        ch = self.tile(nodes, signals=np.zeros((0, 2)), country="PL")
+        zebra = [c for c in ch if c["m"] == "crossing_white"]
+        self.assertEqual(len(zebra), 1)
+        self.assertEqual(zebra[0]["tl"], 4.0)
+        self.assertEqual(zebra[0]["w"], 3.0)
+        lines = [c for c in ch if c.get("n") and c["m"] == "line_white" and c.get("w", 0) < 0.3]
+        self.assertTrue(lines)
+        for c in lines:
+            xs = np.array(c["n"])[:, 0]
+            self.assertTrue(xs.max() <= 58.6 or xs.min() >= 61.4, c)
+
+    def test_germany_without_its_signs_reads_its_own_tags(self):
+        nodes = {"crossings": [(60.0, 2.0, secrossings.M15)], "de_crossings": [(60.0, 2.0, 0)],
+                 "stop_lines": np.zeros((0, 2)), "priority": np.zeros((0, 3))}
+        ch = self.tile(nodes, signals=np.zeros((0, 2)), country="DE")
+        self.assertFalse([c for c in ch if c["m"] == "crossing_white"])
+        nodes["de_crossings"] = [(60.0, 2.0, secrossings.M15)]
+        ch = self.tile(nodes, signals=np.zeros((0, 2)), country="DE")
+        self.assertEqual(len([c for c in ch if c["m"] == "crossing_white"]), 1)
 
 
 if __name__ == "__main__":

@@ -10277,6 +10277,20 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         m14, _gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis,
                                                                 only_minis=True), crosswalks, left_hand)
         teeth = teeth + m14
+        # and the map's own pedestrian crossings (secrossings.place of the nodes; Germany's stricter reading of them
+        # where its junction signs are off): the guesses standing where a mapped one does go, the kerb ramps and the
+        # M16's squares join the junctions', and the road's lines stop at the paint (zebras)
+        if nodes is not None:
+            import secrossings as _cx
+            mine = nodes.get("de_crossings") if str(country or "").upper() == "DE" else nodes.get("crossings")
+            cx_walks, cx_squares, cx_ramps = _cx.place(roads, {"crossings": mine or []})
+            if cx_walks:
+                cx_walks = [dict(cw, look=_cx.M15_LOOK) for cw in cx_walks]
+                crosswalks = _cx.unguessed(crosswalks, cx_walks) + cx_walks
+                zebras = [(np.array([cw["a"], cw["b"]])[:, :2], cw["w"] / 2) for cw in cx_walks]
+                teeth = teeth + cx_squares
+                for key, rs in cx_ramps.items():
+                    jramps.setdefault(key, []).extend(rs)
     # (no curb extensions: they were on every town street with parking, after Fells Point's, and most streets have none:
     # the corners stuck out into the road in Tustin's suburbs, GitHub #208)
     # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a curbed island instead
@@ -10320,8 +10334,13 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             if fill is not None and _box_meets(fill[0], wexact):
                 walks.append({"disc": {"ring": fill[0], "apex": fill[1], "mat": fill[2], "h": fill[3], "dome": fill[4]},
                               "fid": "island"})
-    if walks is not None and nodes is not None and isl:        # splitter islands where the map has a refuge (roundabouts.splitters)
-        for sp_ in roundabouts.splitters(roads, nodes.get("islands")):
+    if walks is not None and nodes is not None and len(nodes.get("islands") or []):
+        # the map's refuges: a roundabout approach's splitter island (roundabouts.splitters) or, away from the
+        # approaches, the crossing's own bar along the road (secrossings.refuges)
+        isles = roundabouts.splitters(roads, nodes.get("islands"))
+        import secrossings as _sx
+        taken = np.array([sp_["outline"][:, :2].mean(0) for sp_ in isles], np.float64).reshape(-1, 2)
+        for sp_ in isles + _sx.refuges(roads, nodes.get("islands"), taken):
             out_ = sp_["outline"]
             mid_ = offset_polyline(np.vstack([out_[-1:], out_, out_[:2]]), roundabouts.SPLIT_CURB_W / 2)[1:-1]
             band_ = simplify(np.vstack([mid_, mid_[:1]]), tol=0.05)
