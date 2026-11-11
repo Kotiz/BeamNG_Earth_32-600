@@ -428,6 +428,46 @@ def _mini_here(arms, minis):
     return bool((np.hypot(minis[:, 0] - c[0], minis[:, 1] - c[1]) <= reach).any())
 
 
+MINI_CIRCLE_R = (2.0, 4.5)  # m the painted circle's radius: half the narrowest arm's width less the clear, clamped
+MINI_CIRCLE_CLEAR_M = 0.5   # m the circle keeps inside the narrowest arm's width
+MINI_BAND_M = 0.4           # m the circle's band
+MINI_SEGMENTS = 24          # quads to a full turn (mark_poly paints convex polygons: the ring goes out in pieces)
+
+
+def mini_circles(roads_list, minis):
+    """[(4, 3)] of the painted circle at each mapped mini-roundabout (minis: secrossings.nodes') that sits at one of
+    roads_list's junctions (within MINI_NEAR_M of its meeting point, _mini_here's reach): the ring the traffic goes
+    round, centred on the node, its radius half the narrowest arm's width less MINI_CIRCLE_CLEAR_M, clamped to
+    MINI_CIRCLE_R, in MINI_SEGMENTS quads a full turn (roads.build_tile paints the teeth with mark_poly). Paint only:
+    the graph's edges run through the node, so a raised island would stop the AI; the give-way lines at its entries
+    (junction_controls' minis rule) are the circle's signs."""
+    if minis is None or not len(minis):
+        return []
+    minis = np.asarray(minis, np.float64).reshape(-1, 2)
+    out = []
+    for arms in _arms(roads_list).values():
+        if len(arms) < 3:
+            continue
+        c = np.array([sum(float(a[3][0]) for a in arms), sum(float(a[3][1]) for a in arms)]) / len(arms)
+        near = minis[np.hypot(minis[:, 0] - c[0], minis[:, 1] - c[1])
+                     <= max(a[1].width for a in arms) / 2 + MINI_NEAR_M]
+        if not len(near):
+            continue
+        node = near[np.argmin(np.hypot(near[:, 0] - c[0], near[:, 1] - c[1]))]
+        r = float(np.clip(min(a[1].width for a in arms) / 2 - MINI_CIRCLE_CLEAR_M, *MINI_CIRCLE_R))
+        z = float(arms[0][3][2])
+        ang = np.arange(MINI_SEGMENTS + 1) * (2.0 * math.pi / MINI_SEGMENTS)
+        for k in range(MINI_SEGMENTS):
+            a0 = node + r * np.array([math.cos(ang[k]), math.sin(ang[k])])
+            a1 = node + r * np.array([math.cos(ang[k + 1]), math.sin(ang[k + 1])])
+            n0 = np.array([-math.sin(ang[k]), math.cos(ang[k])])
+            n1 = np.array([-math.sin(ang[k + 1]), math.cos(ang[k + 1])])
+            quad = np.array([a0 - n0 * MINI_BAND_M / 2, a1 - n1 * MINI_BAND_M / 2,
+                             a1 + n1 * MINI_BAND_M / 2, a0 + n0 * MINI_BAND_M / 2])
+            out.append(np.column_stack([quad, np.full(4, z)]))
+    return out
+
+
 def _mapped_priority(a, priority):
     """G_YIELD or G_STOP where the map has that sign on arm a (priority: secrossings.nodes'), else None."""
     if priority is None or not len(priority):

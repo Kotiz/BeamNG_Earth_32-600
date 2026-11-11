@@ -5,8 +5,9 @@ look. A Swedish street is painted by rule (TSFS 2010:171): M15 only where a B3 s
 only at a B2 or at signals (3 kap. 1, 3 §§), so nothing at a junction under the right-hand rule. OpenStreetMap maps
 these nodes (Overture's infrastructure layer) and most say whether there is paint. Tallied 2026-11-02, within 1.5 km of
 the middle of Borås, Göteborg, Stockholm, Malmö and Umeå: 7427 crossings, 95% within 2 m of a road's centreline.
-Everywhere else the same crossings paint as their tags say (roads.build_tile's other countries, the guesses giving way
-where the map has one too) and a crossing's refuge island (crossing:island) bars the road (refuges).
+Everywhere else the crossings paint where their tags say there is paint (de_paint's reading: the bare
+highway=crossing node's majority guess is Sweden's alone) and a crossing's refuge island (crossing:island) bars the
+road (refuges).
 
 A crossing with no word on its paint counts as painted. crossing=uncontrolled is OpenStreetMap's word for a marked
 crossing without signals; of the signal crossings that say, 614 of 722 have a zebra; of the bare ones that say, 296 of

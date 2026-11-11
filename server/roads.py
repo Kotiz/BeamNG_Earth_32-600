@@ -10254,6 +10254,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         m14, gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis),
                                        crosswalks, left_hand)
         teeth = teeth + m14
+        teeth = teeth + furniture.mini_circles(roads, minis)   # the mapped mini-roundabouts' painted circle
         crosswalks = [cw for j, cw in enumerate(crosswalks) if j not in gone] + stops
     elif de_ctx is not None:
         # Germany: each junction's paint as its signs (one decision, designs.decide, shared with furniture.place): the
@@ -10277,13 +10278,14 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         m14, _gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis,
                                                                 only_minis=True), crosswalks, left_hand)
         teeth = teeth + m14
-        # and the map's own pedestrian crossings (secrossings.place of the nodes; Germany's stricter reading of them
-        # where its junction signs are off): the guesses standing where a mapped one does go, the kerb ramps and the
-        # M16's squares join the junctions', and the road's lines stop at the paint (zebras)
+        teeth = teeth + furniture.mini_circles(roads, minis)   # the mapped mini-roundabouts' painted circle
+        # and the map's own pedestrian crossings (secrossings.place of the nodes, de_paint's reading: only where
+        # OpenStreetMap says there is paint, the bare highway=crossing nodes' majority guess is Sweden's alone): the
+        # guesses standing where a mapped one does go, the kerb ramps and the M16's squares join the junctions', and
+        # the road's lines stop at the paint (zebras)
         if nodes is not None:
             import secrossings as _cx
-            mine = nodes.get("de_crossings") if str(country or "").upper() == "DE" else nodes.get("crossings")
-            cx_walks, cx_squares, cx_ramps = _cx.place(roads, {"crossings": mine or []})
+            cx_walks, cx_squares, cx_ramps = _cx.place(roads, {"crossings": nodes.get("de_crossings") or []})
             if cx_walks:
                 cx_walks = [dict(cw, look=_cx.M15_LOOK) for cw in cx_walks]
                 crosswalks = _cx.unguessed(crosswalks, cx_walks) + cx_walks

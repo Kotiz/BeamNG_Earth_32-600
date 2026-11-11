@@ -28,6 +28,10 @@ def arm(fid, cls, dx, dy, oneway=False, urban=True, c=(100.0, 100.0)):
             np.array([dx, dy], float), pts[0], True, 80.0)
 
 
+def cross_roads():
+    return [road(f"a{i}", "tertiary", dx, dy) for i, (dx, dy) in enumerate([(1, 0), (-1, 0), (0, 1), (0, -1)])]
+
+
 def controls(arms_, **kw):
     return sorted((a[0], w) for a, w in furniture.junction_controls(arms_, None, **kw))
 
@@ -96,6 +100,30 @@ class NodesTest(unittest.TestCase):
 
     def test_none_when_the_layer_cannot_be_read(self):
         self.assertIsNone(secrossings.nodes(Frame(), [None]))
+
+
+class MiniCirclesTest(unittest.TestCase):
+    """The painted circle at a mapped mini-roundabout: centred on the node, sized by the narrowest arm."""
+    def test_a_circle_at_the_mapped_node(self):
+        got = furniture.mini_circles(cross_roads(), HERE)
+        self.assertEqual(len(got), furniture.MINI_SEGMENTS)
+        pts = np.vstack(got)
+        np.testing.assert_allclose(pts[:, 2], 0.0)
+        r = np.hypot(pts[:, 0] - 100.0, pts[:, 1] - 100.0)
+        self.assertAlmostEqual(float(r.min()), 4.5, places=2)   # (width 10: 10 / 2 - 0.5, the band's corner)
+        self.assertAlmostEqual(float(r.max()), 4.5, places=2)
+
+    def test_the_narrowest_arms_width_sizes_it(self):
+        roads_ = [road("a", "tertiary", 1, 0, width=6.0), road("b", "tertiary", -1, 0, width=12.0),
+                  road("c", "tertiary", 0, 1, width=12.0)]
+        pts = np.vstack(furniture.mini_circles(roads_, HERE))
+        r = np.hypot(pts[:, 0] - 100.0, pts[:, 1] - 100.0)
+        self.assertAlmostEqual(float(r.min()), 2.5, places=1)   # (6 / 2 - 0.5, the band's corner)
+
+    def test_no_junction_or_a_far_node_is_nothing(self):
+        self.assertEqual(furniture.mini_circles([road("a", "tertiary", 1, 0)], HERE), [])
+        self.assertEqual(furniture.mini_circles(cross_roads(), FAR), [])
+        self.assertEqual(furniture.mini_circles(cross_roads(), None), [])
 
 
 if __name__ == "__main__":

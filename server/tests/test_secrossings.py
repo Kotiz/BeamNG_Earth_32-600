@@ -386,15 +386,16 @@ class TileTest(unittest.TestCase):
                 self.assertEqual(c["tl"], 4.8)
 
     def test_a_mapped_crossing_elsewhere_too(self):
-        """Poland's mapped crossings (crossing=uncontrolled and the like) paint as Sweden's do, and the road's lines
-        stop at them."""
-        nodes = {"crossings": [(60.0, 2.0, secrossings.M15)], "stop_lines": np.zeros((0, 2)),
-                 "priority": np.zeros((0, 3))}
+        """Poland's mapped marked crossings (crossing=uncontrolled and the like) paint as Sweden's do and the road's
+        lines stop at them; a bare highway=crossing node paints nothing (de_paint's reading, not Sweden's majority
+        guess)."""
+        nodes = {"crossings": [(60.0, 2.0, secrossings.M15), (140.0, 2.0, secrossings.M15)],
+                 "de_crossings": [(60.0, 2.0, secrossings.M15), (140.0, 2.0, 0)],
+                 "stop_lines": np.zeros((0, 2)), "priority": np.zeros((0, 3))}
         ch = self.tile(nodes, signals=np.zeros((0, 2)), country="PL")
         zebra = [c for c in ch if c["m"] == "crossing_white"]
         self.assertEqual(len(zebra), 1)
-        self.assertEqual(zebra[0]["tl"], 4.0)
-        self.assertEqual(zebra[0]["w"], 3.0)
+        self.assertEqual((zebra[0]["tl"], zebra[0]["w"]), (4.0, 3.0))
         lines = [c for c in ch if c.get("n") and c["m"] == "line_white" and c.get("w", 0) < 0.3]
         self.assertTrue(lines)
         for c in lines:
