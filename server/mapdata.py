@@ -773,6 +773,19 @@ class MapData:
             log.warning("mapdata: OSM road tags of %s: %s: %s", key, type(e).__name__, e)
             return {}, []
 
+    def minis(self, bounds, kind="demand"):
+        """(n, 2) lon/lat of the mapped mini-roundabout nodes in bounds, from the Layercake file (osmtags.OsmTags.minis):
+        Overture's infrastructure layer has none, and the tag shards carry the highways' ways only, so the file itself
+        is asked (its footer and the row groups' columns are cached: a place's tiles share them). None when there is no
+        fetcher."""
+        import osmtags
+        if self.fetcher is None:
+            return None
+        with self._lock:
+            if getattr(self, "osmtags", None) is None:
+                self.osmtags = osmtags.OsmTags(self.raw_dir, self.fetcher)
+        return self.osmtags.minis(bounds, kind)
+
     def osm_fuel_path(self, key):
         return os.path.join(self.raw_dir, "osmfuel_cells", f"v{OSM_POI_VERSION}", f"{_key(key)}.json")
 

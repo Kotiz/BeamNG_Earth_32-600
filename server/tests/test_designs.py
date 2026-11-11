@@ -1523,7 +1523,11 @@ class MarkingsTest(unittest.TestCase):
         self.assertEqual(set(self.sets(self.z341(ch))), {"e"})
         self.assertEqual([self.arm(h.mean(0))[0] for h in self.z294(ch)], ["s"])
         off = self.build(feats, False, nodes=nodes)[0]
-        self.assertEqual(off, self.build(self.layer(self.RES), False)[0], "off: as today")
+        # (the map readable, its crossings none: the junctions' guessed crosswalks go too (roads.build_tile), so the
+        # like-for-like comparison is against a build of the same readable-map-no-crossings nodes)
+        empty = {"crossings": [], "de_crossings": [], "other_crossings": [], "stop_lines": np.zeros((0, 2)),
+                 "priority": np.zeros((0, 3))}
+        self.assertEqual(off, self.build(feats, False, nodes=empty)[0], "off: as today")
 
     def test_a_junction_at_a_tile_edge(self):
         """The junction 2 m west of the tiles' seam: its stem's Wartelinie straddles it; each dash is drawn by one tile

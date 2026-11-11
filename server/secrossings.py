@@ -52,33 +52,8 @@ def wanted(country, de=False):
     return str(country or "").upper() == "SE" or bool(de)
 
 
-GUESS_NEAR_M = 5.0              # m a guessed crosswalk's middle keeps from the mapped one at the same crossing
-GUESS_COS = 0.5                 # cos of the bands' directions: the same road's, not a neighbouring arm's
 REFUGE_HALF_L_M = 3.0           # m of island each way along the road from a crossing's refuge node
 REFUGE_TAKEN_M = 5.0            # m a refuge node keeps from an island a roundabout's splitter already built
-
-
-def unguessed(guessed, mapped):
-    """junctions.find's guessed crosswalks that no mapped crosswalk (place's) already paints: the map's node and the
-    guess at the same crossing would paint it twice. A guess goes when its middle is within GUESS_NEAR_M of a mapped
-    band and the bands lie across the same road (their directions' cos at least GUESS_COS: a neighbouring arm's
-    crosswalk stands across another road, near but not the same crossing)."""
-    if not guessed or mapped is None or not len(mapped):
-        return guessed
-    a = np.array([cw["a"][:2] for cw in mapped], np.float64)
-    d = np.array([cw["b"][:2] for cw in mapped], np.float64) - a
-    l2 = np.maximum((d * d).sum(1), 1e-9)
-    keep = []
-    for cw in guessed:
-        ga, gb = np.asarray(cw["a"][:2], np.float64), np.asarray(cw["b"][:2], np.float64)
-        m, gd = 0.5 * (ga + gb), gb - ga
-        gl = max(float(np.hypot(*gd)), 1e-9)
-        t = np.clip(((m - a) * d).sum(1) / l2, 0.0, 1.0)
-        near = np.hypot(*(a + d * t[:, None] - m).T) <= GUESS_NEAR_M
-        same = np.abs((d[:, 0] * gd[0] + d[:, 1] * gd[1]) / (np.sqrt(l2) * gl)) >= GUESS_COS
-        if not bool((near & same).any()):
-            keep.append(cw)
-    return keep
 
 
 def refuges(roads_list, refuges, taken=None):
@@ -164,12 +139,26 @@ def de_paint(tags):
     return M15 if tags.get("crossing") in DE_MARKED or tags.get("crossing_ref") == "zebra" else 0
 
 
+MARKED = ("zebra", "marked")        # crossing=: the tags' own words for paint on the road
+
+
+def strict_paint(tags):
+    """M15 | 0: the paint a crossing's tags say outright, the reading outside Sweden and Germany (roads.build_tile's
+    other countries): `uncontrolled` says only that there are no signals, and Poland's uncontrolled crossings stand
+    unpainted as often as painted, so without a markings word nothing is painted."""
+    marks = _marks(tags)
+    if marks:
+        return M15 if marks & {"zebra", "yes"} else 0
+    return M15 if tags.get("crossing") in MARKED or tags.get("crossing_ref") == "zebra" else 0
+
+
 def nodes(frame, infra_list):
     """{"crossings": [(x, y, paint)], "zebras": [(x, y)] of those painted M15 and no signal's (sesigns' B3),
     "de_crossings": [(x, y, de_paint)] Germany's reading of the same crossings, M15 none within SIGNALS_NEAR_M of a
     mapped signal (designs.junction_paint), "stop_lines": (n, 2) xy of the mapped stop lines (road_marking=stop_line on
     a signal or stop node), "priority": (n, 3) x, y, 1 at a stop sign and 0 at a give-way sign, "mini_roundabouts":
-    (n, 2) xy of the mapped mini-roundabout nodes (highway=mini_roundabout, at the circle's centre)} of infrastructure
+    (n, 2) xy of the mapped mini-roundabout nodes (highway=mini_roundabout, at the circle's centre),
+    "other_crossings": [(x, y, strict_paint)] the crossings' paint outside Sweden and Germany} of infrastructure
     Features of map cells, each node once; None when none could be read or they have no tags (the road tiles then
     guess, as elsewhere)."""
     if not infra_list or all(f is None for f in infra_list):
@@ -203,11 +192,12 @@ def nodes(frame, infra_list):
         ll = np.array([q[1] for q in found], np.float64)
         e, n, _ = frame.geodetic_to_enu(ll[:, 1], ll[:, 0], 0.0)
         xy = np.column_stack([np.asarray(e), np.asarray(n)])
-    crossings, lines, priority, zebras, signals, de, refuges, minis = [], [], [], [], [], [], [], []
+    crossings, lines, priority, zebras, signals, de, other, refuges, minis = [], [], [], [], [], [], [], [], []
     for (cls, _, tag), p in zip(found, xy if found else ()):
         if cls == "crossing":
             crossings.append((float(p[0]), float(p[1]), paint(tag)))
             de.append((float(p[0]), float(p[1]), de_paint(tag)))
+            other.append((float(p[0]), float(p[1]), strict_paint(tag)))
             if str(tag.get("crossing:island", "")).lower() == "yes":      # (a refuge in the road: a splitter island, plan 038)
                 refuges.append((float(p[0]), float(p[1])))
             if paint(tag) & M15 and tag.get("crossing") != "traffic_signals":
@@ -225,20 +215,36 @@ def nodes(frame, infra_list):
         return any(math.hypot(z[0] - q[0], z[1] - q[1]) < SIGNALS_NEAR_M for q in signals)
     zebras = [z for z in zebras if not lit(z)]
     de = [(x, y, 0 if w and lit((x, y)) else w) for x, y, w in de]
-    return {"crossings": crossings, "zebras": zebras, "de_crossings": de, "islands": refuges,
-            "stop_lines": np.array(lines, np.float64).reshape(-1, 2),
+    return {"crossings": crossings, "zebras": zebras, "de_crossings": de, "other_crossings": other,
+            "islands": refuges, "stop_lines": np.array(lines, np.float64).reshape(-1, 2),
             "priority": np.array(priority, np.float64).reshape(-1, 3),
             "mini_roundabouts": np.array(minis, np.float64).reshape(-1, 2)}
 
 
 def read(md, frame, keys):
-    """nodes of the map cells keys (md: mapdata.MapData), None when their infrastructure cannot be read."""
+    """nodes of the map cells keys (md: mapdata.MapData), None when their infrastructure cannot be read. The
+    mini-roundabouts join from the Layercake file (md.minis): Overture's infrastructure layer has none of them, and
+    a failure there costs only the circles, not the road tile."""
+    log = logging.getLogger("earthd.crossings")
     try:
-        return nodes(frame, [md.cell(k, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
-                             for k in keys])
+        out = nodes(frame, [md.cell(k, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
+                            for k in keys])
     except Exception as e:      # guessed crossings rather than no road tile
-        logging.getLogger("earthd.crossings").debug("crossings: %s: %s", type(e).__name__, e)
+        log.debug("crossings: %s: %s", type(e).__name__, e)
         return None
+    try:
+        bs = [k.bounds() for k in keys]
+        minis = md.minis((min(b[0] for b in bs), min(b[1] for b in bs),
+                          max(b[2] for b in bs), max(b[3] for b in bs)))
+    except Exception as e:
+        log.debug("mini-roundabouts: %s: %s", type(e).__name__, e)
+        minis = None
+    if out is not None and minis is not None and len(minis):
+        e, n, _ = frame.geodetic_to_enu(minis[:, 1], minis[:, 0], 0.0)
+        xy = np.column_stack([np.asarray(e), np.asarray(n)])
+        got = out.get("mini_roundabouts")
+        out["mini_roundabouts"] = xy if got is None or not len(got) else np.vstack([got, xy])
+    return out
 
 
 def _squares(mid, u, n, half, z):

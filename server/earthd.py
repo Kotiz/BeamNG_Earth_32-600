@@ -2146,7 +2146,7 @@ class Server:
             # crossings, their refuge islands and the mini-roundabouts are the map's everywhere)
             nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": nodes.get("mini_roundabouts"),
                      "crossings": nodes.get("crossings"), "de_crossings": nodes.get("de_crossings"),
-                     "islands": nodes.get("islands")}
+                     "other_crossings": nodes.get("other_crossings"), "islands": nodes.get("islands")}
         # (and the cells' road_routes for the German junctions' ref ranks, as blockworker.navgraph reads them)
         de_routes = blockworker._de_routes(self.mapdata, keys) if de_nodes else ()
         tun = {}
@@ -2724,7 +2724,7 @@ class Server:
             # mini-roundabouts come from the map, the give-way/stop signs do not)
             sign_nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": sign_nodes.get("mini_roundabouts"),
                           "crossings": sign_nodes.get("crossings"), "de_crossings": sign_nodes.get("de_crossings"),
-                          "islands": sign_nodes.get("islands")}
+                          "other_crossings": sign_nodes.get("other_crossings"), "islands": sign_nodes.get("islands")}
         clearance = [] if self.buildings else None     # (build_tile's RoadClearance, PR #629: the powerlines' too)
         roadside_jobs = []
         drives = []

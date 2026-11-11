@@ -176,6 +176,39 @@ class OsmTags:
                 self._forget()
         return {}, []
 
+    def minis(self, bounds, kind="demand"):
+        """(n, 2) lon/lat of the mapped mini-roundabout nodes (highway=mini_roundabout) whose position lies in bounds,
+        from the pinned Layercake version. Overture's infrastructure layer has none (overture.py keeps the nodes'
+        crossings and signals; highway=mini_roundabout it drops), and the tag shards keep the highways' ways only
+        (tools/build_osm_tag_shards.py), but the same Layercake file has the nodes as Point features (node 3068909670,
+        Dworcowa / Obozowa / Krzywa / Garbarska, Oświęcim). A point's bbox is the point, so the row groups whose
+        statistics touch bounds are asked and their rows filtered by their own bbox."""
+        etag, remote = self.version(kind)
+        rd = self._reader
+        files = {PATH: remote}
+        con, proto, errors = rd._connect(files, kind)
+        out = []
+        try:
+            uri = f"'{proto}://{PATH}'"
+            groups = self._groups(con, uri, remote, kind)
+            lon0, lat0, lon1, lat1 = bounds
+            for rg in self._candidates(groups, bounds):
+                g = groups[rg]
+                rows = con.execute(f"""SELECT bbox.xmin, bbox.ymin FROM read_parquet({uri}, file_row_number = true)
+                    WHERE file_row_number BETWEEN {g['first']} AND {g['first'] + g['n'] - 1}
+                    AND highway = 'mini_roundabout'
+                    AND bbox.xmin <= {lon1!r} AND bbox.xmax >= {lon0!r}
+                    AND bbox.ymin <= {lat1!r} AND bbox.ymax >= {lat0!r}""").fetchall()
+                out.extend((float(x), float(y)) for x, y in rows)
+        except Exception:
+            for e in errors:
+                if isinstance(e, rangeread.Changed):
+                    raise e
+            raise
+        finally:
+            con.close()
+        return np.array(out, np.float64).reshape(-1, 2)
+
     def highway_geometry(self, bounds, kind="demand", need=None):
         """{way id: (k, 2) lon/lat} of the tagged motorways / trunks (and their links) with a lane count whose bbox
         touches bounds: PR #471's match for a highway whose Overture way id OSM no longer has (roadlanes.join). Asked

@@ -209,32 +209,20 @@ class PlaceTest(unittest.TestCase):
         self.assertGreater(band["a"][0], 50.0)
 
 
-class UnguessedTest(unittest.TestCase):
-    """The guesses that stand where the map has a crossing go; a neighbouring arm's crosswalk stays."""
-    def gu(self, x, y=0.0, across="y"):
-        if across == "y":
-            return {"a": np.array([x, y + 4.0, 0.0]), "b": np.array([x, y - 4.0, 0.0]), "w": 3.0}
-        return {"a": np.array([x - 4.0, y, 0.0]), "b": np.array([x + 4.0, y, 0.0]), "w": 3.0}
+class StrictPaintTest(unittest.TestCase):
+    """Outside Sweden and Germany only the paint the tags say outright: `uncontrolled` alone is not a zebra there."""
+    def test_the_words_that_say_paint(self):
+        for tags in ({"crossing:markings": "zebra"}, {"crossing:markings": "yes"}, {"crossing": "zebra"},
+                     {"crossing": "marked"}, {"crossing_ref": "zebra"},
+                     {"crossing": "uncontrolled", "crossing:markings": "zebra"}):
+            self.assertEqual(secrossings.strict_paint(tags), secrossings.M15, tags)
 
-    def mapped(self, x):
-        return [dict(self.gu(x), look=secrossings.M15_LOOK)]
-
-    @staticmethod
-    def mids(cws):
-        return sorted(tuple(np.round(0.5 * (np.asarray(cw["a"][:2], np.float64) + cw["b"][:2]), 3)) for cw in cws)
-
-    def test_the_guess_at_a_mapped_crossing_goes(self):
-        self.assertEqual(self.mids(secrossings.unguessed([self.gu(50.0), self.gu(57.0)], self.mapped(50.0))),
-                         self.mids([self.gu(57.0)]))
-
-    def test_a_neighbouring_arms_guess_stays(self):
-        self.assertEqual(self.mids(secrossings.unguessed([self.gu(50.0, 3.0, across="x")], self.mapped(50.0))),
-                         self.mids([self.gu(50.0, 3.0, across="x")]))
-
-    def test_no_mapped_crossing_keeps_every_guess(self):
-        guess = [self.gu(50.0), self.gu(57.0)]
-        self.assertEqual(self.mids(secrossings.unguessed(guess, [])), self.mids(guess))
-        self.assertEqual(self.mids(secrossings.unguessed(guess, None)), self.mids(guess))
+    def test_the_words_that_say_none(self):
+        for tags in ({}, {"highway": "crossing"}, {"crossing": "uncontrolled"}, {"crossing": "island"},
+                     {"crossing": "unmarked"}, {"crossing": "informal"}, {"crossing": "traffic_signals"},
+                     {"crossing:markings": "surface"}, {"crossing:markings": "no"},
+                     {"crossing": "uncontrolled", "crossing:markings": "no"}):
+            self.assertEqual(secrossings.strict_paint(tags), 0, tags)
 
 
 class RefugesTest(unittest.TestCase):
@@ -386,11 +374,11 @@ class TileTest(unittest.TestCase):
                 self.assertEqual(c["tl"], 4.8)
 
     def test_a_mapped_crossing_elsewhere_too(self):
-        """Poland's mapped marked crossings (crossing=uncontrolled and the like) paint as Sweden's do and the road's
-        lines stop at them; a bare highway=crossing node paints nothing (de_paint's reading, not Sweden's majority
-        guess)."""
+        """Poland's mapped marked crossings paint as Sweden's do and the road's lines stop at them; a bare
+        highway=crossing node paints nothing (strict_paint's reading: `uncontrolled` alone is not a zebra outside
+        Germany)."""
         nodes = {"crossings": [(60.0, 2.0, secrossings.M15), (140.0, 2.0, secrossings.M15)],
-                 "de_crossings": [(60.0, 2.0, secrossings.M15), (140.0, 2.0, 0)],
+                 "other_crossings": [(60.0, 2.0, secrossings.M15), (140.0, 2.0, 0)],
                  "stop_lines": np.zeros((0, 2)), "priority": np.zeros((0, 3))}
         ch = self.tile(nodes, signals=np.zeros((0, 2)), country="PL")
         zebra = [c for c in ch if c["m"] == "crossing_white"]
@@ -401,6 +389,13 @@ class TileTest(unittest.TestCase):
         for c in lines:
             xs = np.array(c["n"])[:, 0]
             self.assertTrue(xs.max() <= 58.6 or xs.min() >= 61.4, c)
+
+    def test_the_map_readable_means_no_guesses(self):
+        """Where the map's crossings could be read the junctions' guessed crosswalks all go, painted or not."""
+        nodes = {"crossings": [], "other_crossings": [], "stop_lines": np.zeros((0, 2)),
+                 "priority": np.zeros((0, 3))}
+        ch = self.tile(nodes, signals=np.zeros((0, 2)), country="PL")
+        self.assertFalse([c for c in ch if c["m"] == "crossing_white"])
 
     def test_germany_without_its_signs_reads_its_own_tags(self):
         nodes = {"crossings": [(60.0, 2.0, secrossings.M15)], "de_crossings": [(60.0, 2.0, 0)],

@@ -3,6 +3,7 @@ incoming arm give way to the circle (furniture.junction_controls), instead of th
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -100,6 +101,41 @@ class NodesTest(unittest.TestCase):
 
     def test_none_when_the_layer_cannot_be_read(self):
         self.assertIsNone(secrossings.nodes(Frame(), [None]))
+
+
+class ReadTest(unittest.TestCase):
+    """read() joins the Layercake file's mini-roundabout nodes (md.minis) to the infrastructure's."""
+    @staticmethod
+    def cell(b):
+        return SimpleNamespace(bounds=lambda: b)
+
+    @staticmethod
+    def md(infra, minis):
+        return SimpleNamespace(cell=lambda k, layers, kind: SimpleNamespace(layers={"infrastructure": infra}),
+                               minis=minis if callable(minis) else (lambda bounds: minis))
+
+    def test_the_layercake_minis_join_the_infrastructures(self):
+        md = self.md(Infra([("crossing", (1.0, 2.0), {"crossing": "unmarked"})]), np.array([[0.5, 0.5]]))
+        got = secrossings.read(md, Frame(), [self.cell((0.0, 0.0, 1.0, 1.0))])
+        np.testing.assert_allclose(got["mini_roundabouts"], [[5.0, 5.0]])
+        self.assertEqual(len(got["crossings"]), 1)
+
+    def test_no_layercake_minis_keeps_the_infrastructures(self):
+        md = self.md(Infra([("mini_roundabout", (1.0, 2.0), {})]), np.zeros((0, 2)))
+        got = secrossings.read(md, Frame(), [self.cell((0.0, 0.0, 1.0, 1.0))])
+        np.testing.assert_allclose(got["mini_roundabouts"], [[10.0, 20.0]])
+
+    def test_minis_failing_costs_only_the_circles(self):
+        def down(bounds):
+            raise RuntimeError("down")
+        md = self.md(Infra([("crossing", (1.0, 2.0), {})]), down)
+        got = secrossings.read(md, Frame(), [self.cell((0.0, 0.0, 1.0, 1.0))])
+        self.assertEqual(len(got["crossings"]), 1)
+        self.assertEqual(len(got["mini_roundabouts"]), 0)
+
+    def test_no_infrastructure_still_none(self):
+        md = self.md(None, np.array([[0.5, 0.5]]))
+        self.assertIsNone(secrossings.read(md, Frame(), [self.cell((0.0, 0.0, 1.0, 1.0))]))
 
 
 class MiniCirclesTest(unittest.TestCase):

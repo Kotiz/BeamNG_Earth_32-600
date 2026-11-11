@@ -10267,32 +10267,34 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     elif walks is not None and str(country or "").upper() != "SE":
         # every other country: a give-way line across each roundabout entry (roundabouts.entry_marks)
         import roundabouts as _rb
+        import furniture
+        import markings as _gw
+        # and the map's own pedestrian crossings (secrossings.place of the nodes, strict_paint's reading: only where
+        # OpenStreetMap says there is paint outright, `uncontrolled` alone is not a zebra outside Germany). Where the
+        # map could be read its crossings are the only ones: junctions.find's guesses painted zebras across streets
+        # that have none (Oświęcim, the user 2026-11-12), so where it is readable they all go, and where it cannot
+        # the guesses stay, as before. The kerb ramps and the M16's squares join the junctions', and the road's lines
+        # stop at the paint (zebras)
+        iso = str(country or "").upper()
+        mapped = None if nodes is None else nodes.get("de_crossings" if iso == "DE" else "other_crossings")
+        if mapped is not None:
+            import secrossings as _cx
+            cx_walks, cx_squares, cx_ramps = _cx.place(roads, {"crossings": mapped})
+            crosswalks = [dict(cw, look=_cx.M15_LOOK) for cw in cx_walks]
+            zebras = [(np.array([cw["a"], cw["b"]])[:, :2], cw["w"] / 2) for cw in crosswalks]
+            teeth = teeth + cx_squares
+            for key, rs in cx_ramps.items():
+                jramps.setdefault(key, []).extend(rs)
         rb_marks, rb_cuts = _rb.entry_marks(roads, signals, country, priority, crosswalks, left_hand)
         teeth = teeth + rb_marks
         for fid_, cut_ in rb_cuts.items():
             jlines.setdefault(fid_, []).extend(cut_)
         # and the mapped mini-roundabouts' give-way lines (junction_controls' minis rule); the guessed signs
         # elsewhere stay unpainted, as before
-        import furniture
-        import markings as _gw
         m14, _gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis,
                                                                 only_minis=True), crosswalks, left_hand)
         teeth = teeth + m14
         teeth = teeth + furniture.mini_circles(roads, minis)   # the mapped mini-roundabouts' painted circle
-        # and the map's own pedestrian crossings (secrossings.place of the nodes, de_paint's reading: only where
-        # OpenStreetMap says there is paint, the bare highway=crossing nodes' majority guess is Sweden's alone): the
-        # guesses standing where a mapped one does go, the kerb ramps and the M16's squares join the junctions', and
-        # the road's lines stop at the paint (zebras)
-        if nodes is not None:
-            import secrossings as _cx
-            cx_walks, cx_squares, cx_ramps = _cx.place(roads, {"crossings": nodes.get("de_crossings") or []})
-            if cx_walks:
-                cx_walks = [dict(cw, look=_cx.M15_LOOK) for cw in cx_walks]
-                crosswalks = _cx.unguessed(crosswalks, cx_walks) + cx_walks
-                zebras = [(np.array([cw["a"], cw["b"]])[:, :2], cw["w"] / 2) for cw in cx_walks]
-                teeth = teeth + cx_squares
-                for key, rs in cx_ramps.items():
-                    jramps.setdefault(key, []).extend(rs)
     # (no curb extensions: they were on every town street with parking, after Fells Point's, and most streets have none:
     # the corners stuck out into the road in Tustin's suburbs, GitHub #208)
     # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a curbed island instead
