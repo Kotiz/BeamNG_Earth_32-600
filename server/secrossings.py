@@ -23,7 +23,7 @@ import furniture
 import junctions
 
 M15, M16 = 1, 2                 # paint: bits of paint()
-CLASSES = ("crossing", "give_way", "stop", "traffic_signals")
+CLASSES = ("crossing", "give_way", "stop", "traffic_signals", "mini_roundabout")
 UNPAINTED = ("unmarked", "informal", "no")
 NODE_NEAR_M = 2.0               # m from a carriageway's centreline a crossing is on that road (95% of them, above)
 SIGNALS_NEAR_M = 15.0           # m from a set of signals a crossing is under them, whatever its own tags say
@@ -88,7 +88,8 @@ def nodes(frame, infra_list):
     """{"crossings": [(x, y, paint)], "zebras": [(x, y)] of those painted M15 and no signal's (sesigns' B3),
     "de_crossings": [(x, y, de_paint)] Germany's reading of the same crossings, M15 none within SIGNALS_NEAR_M of a
     mapped signal (designs.junction_paint), "stop_lines": (n, 2) xy of the mapped stop lines (road_marking=stop_line on
-    a signal or stop node), "priority": (n, 3) x, y, 1 at a stop sign and 0 at a give-way sign} of infrastructure
+    a signal or stop node), "priority": (n, 3) x, y, 1 at a stop sign and 0 at a give-way sign, "mini_roundabouts":
+    (n, 2) xy of the mapped mini-roundabout nodes (highway=mini_roundabout, at the circle's centre)} of infrastructure
     Features of map cells, each node once; None when none could be read or they have no tags (the road tiles then
     guess, as elsewhere)."""
     if not infra_list or all(f is None for f in infra_list):
@@ -122,7 +123,7 @@ def nodes(frame, infra_list):
         ll = np.array([q[1] for q in found], np.float64)
         e, n, _ = frame.geodetic_to_enu(ll[:, 1], ll[:, 0], 0.0)
         xy = np.column_stack([np.asarray(e), np.asarray(n)])
-    crossings, lines, priority, zebras, signals, de, refuges = [], [], [], [], [], [], []
+    crossings, lines, priority, zebras, signals, de, refuges, minis = [], [], [], [], [], [], [], []
     for (cls, _, tag), p in zip(found, xy if found else ()):
         if cls == "crossing":
             crossings.append((float(p[0]), float(p[1]), paint(tag)))
@@ -135,6 +136,8 @@ def nodes(frame, infra_list):
             signals.append((float(p[0]), float(p[1])))
         elif cls in ("give_way", "stop"):
             priority.append((float(p[0]), float(p[1]), float(cls == "stop")))
+        elif cls == "mini_roundabout":
+            minis.append((float(p[0]), float(p[1])))
         if cls != "crossing" and tag.get("road_marking") == "stop_line":
             lines.append((float(p[0]), float(p[1])))
 
@@ -144,7 +147,8 @@ def nodes(frame, infra_list):
     de = [(x, y, 0 if w and lit((x, y)) else w) for x, y, w in de]
     return {"crossings": crossings, "zebras": zebras, "de_crossings": de, "islands": refuges,
             "stop_lines": np.array(lines, np.float64).reshape(-1, 2),
-            "priority": np.array(priority, np.float64).reshape(-1, 3)}
+            "priority": np.array(priority, np.float64).reshape(-1, 3),
+            "mini_roundabouts": np.array(minis, np.float64).reshape(-1, 2)}
 
 
 def read(md, frame, keys):

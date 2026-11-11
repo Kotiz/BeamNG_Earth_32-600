@@ -415,6 +415,18 @@ def _is_signalled(arms, signals=None):
 
 MAPPED_ARM_M = 30.0         # m from its junction a mapped give-way or stop node is that junction's, and within half the arm
 
+MINI_NEAR_M = 20.0          # m from its junction a mapped mini-roundabout node is that junction's (OpenStreetMap maps
+                            # highway=mini_roundabout at the painted circle's centre)
+
+
+def _mini_here(arms, minis):
+    """Is a mapped mini-roundabout (minis: secrossings.nodes' mini_roundabouts) at this junction?"""
+    if minis is None or not len(minis):
+        return False
+    c = np.array([sum(float(a[3][0]) for a in arms), sum(float(a[3][1]) for a in arms)]) / len(arms)
+    reach = max(a[1].width for a in arms) / 2 + MINI_NEAR_M
+    return bool((np.hypot(minis[:, 0] - c[0], minis[:, 1] - c[1]) <= reach).any())
+
 
 def _mapped_priority(a, priority):
     """G_YIELD or G_STOP where the map has that sign on arm a (priority: secrossings.nodes'), else None."""
@@ -429,7 +441,7 @@ def _mapped_priority(a, priority):
     return G_STOP if priority[hit, 2].any() else G_YIELD
 
 
-def junction_controls(arms, k, link_ok=None, ring=None, signals=None, country=None, priority=None):
+def junction_controls(arms, k, link_ok=None, ring=None, signals=None, country=None, priority=None, minis=None):
     """[(arm, G_SIGNAL | G_STOP | G_YIELD)] of a junction's arms (fid, spec, unit vector away, point): signals on
     every arm where two or more major roads meet, stop signs on the minor arms meeting a major road, on the
     stem of a minor T and on half the minor four-ways (hashed by the roads meeting there; k is unused). Shared with
@@ -440,9 +452,13 @@ def junction_controls(arms, k, link_ok=None, ring=None, signals=None, country=No
     arms lower than the road through and nothing between roads of a class, as trafikförordningen (1998:1276): the
     right-hand rule is 3 kap. 18 §, give-way entering a main road 21 §, and a stop sign is a local exception "där väjningsplikt
     inte fungerar" (Transportstyrelsen's decision TSV 2011-1541, 2012-01-09); priority: the signs the map has
-    (secrossings.nodes), on top of those, as a stop sign is only ever the map's."""
+    (secrossings.nodes), on top of those, as a stop sign is only ever the map's. minis: the mapped mini-roundabout
+    nodes (secrossings.nodes' mini_roundabouts): a junction with one is a mini-roundabout, every incoming arm gives
+    way to the circle, and nothing is guessed there."""
     if ring and sum(1 for a in arms if a[0] in ring) >= 2:
         return [(a, G_YIELD) for a in arms if a[0] not in ring and not _outbound(a)]
+    if _mini_here(arms, minis):
+        return [(a, G_YIELD) for a in arms if not _outbound(a)]
     major = [a for a in arms if a[1].cls in MAJOR]
     minor = [a for a in arms if a[1].cls in MINOR and not _outbound(a)]    # (no stop sign on a one-way out of it)
     stops = priority_controls(arms, ring, signals, country)
@@ -494,9 +510,11 @@ def _link_check(junctions, signals=None):
     return link_ok
 
 
-def _controlled_here(arms, signals=None):
-    """Does a junction get signals or signs at all: in town (every arm urban), or anywhere a signal is mapped at it."""
-    return all(a[1].urban for a in arms) or (signals is not None and _is_signalled(arms, signals))
+def _controlled_here(arms, signals=None, minis=None):
+    """Does a junction get signals or signs at all: in town (every arm urban), or anywhere a signal or a mapped
+    mini-roundabout is at it."""
+    return all(a[1].urban for a in arms) or (signals is not None and _is_signalled(arms, signals)) \
+        or _mini_here(arms, minis)
 
 
 SIGN_CLEAR_M = 0.6          # m a junction sign stands clear of every carriageway's edge
@@ -559,18 +577,20 @@ def signal_spot(c, u, right, wide, half, lines, group=G_SIGNAL, base_z=0.0, grou
     return _off_carriageways(c, u, right, wide + 2.5, half + 1.0, lines, group, base_z, ground, clearance, yaw)
 
 
-def give_way_arms(roads, signals=None, country=None, priority=None, stops=False):
+def give_way_arms(roads, signals=None, country=None, priority=None, stops=False, minis=None, only_minis=False):
     """[(fid, spec, centreline from the junction, half the widest arm's width)] of the paved arms that give way
     (junction_controls), for their line on the road (markings.give_way_lines); stops: instead the arms that stop,
-    with what there as a fifth item (markings.stop_lines)."""
+    with what there as a fifth item (markings.stop_lines). minis: the mapped mini-roundabout nodes
+    (secrossings.nodes' mini_roundabouts); only_minis: only the mini-roundabout junctions' arms."""
     import islands
     ring, lines, out = islands.ring_fids(roads), {fid: pts for fid, _, pts, _ in roads}, []
     junctions = _arms(roads)
     link_ok = _link_check(junctions, signals)
     for k, arms in junctions.items():
-        if len(arms) >= 3:
+        if len(arms) >= 3 and not (only_minis and not _mini_here(arms, minis)):
             wide = max(a[1].width for a in arms) / 2
-            for a, what in junction_controls(arms, k, link_ok if stops else None, ring, signals, country, priority):
+            for a, what in junction_controls(arms, k, link_ok if stops else None, ring, signals, country, priority,
+                                             minis):
                 if a[1].kind != "paved" or (what != G_YIELD) != stops:
                     continue
                 arm = (a[0], a[1], np.asarray(lines[a[0]] if a[4] else lines[a[0]][::-1], np.float64), wide)
@@ -579,7 +599,8 @@ def give_way_arms(roads, signals=None, country=None, priority=None, stops=False)
 
 
 def junction_props(roads, box, curb_h=0.15, left_hand=False, decks=(), signals=None, country=None, priority=None,
-                   ground=None, clearance=None, sign_obstacles=None, de_on=False, de_ctx=None, de_ctl=None):
+                   ground=None, clearance=None, sign_obstacles=None, de_on=False, de_ctx=None, de_ctl=None,
+                   minis=None):
     """Signals at the junctions with a mapped traffic signal (signals: mapped_signals'; None: at urban junctions of
     two or more major roads), stop signs at urban junctions
     of minor roads (the minor arms meeting a major road; the stem of a T; half the four-way ones, hashed).
@@ -651,13 +672,13 @@ def junction_props(roads, box, curb_h=0.15, left_hand=False, decks=(), signals=N
             if not put:
                 continue
         on_ring = sum(1 for a in arms if a[0] in ring) >= 2
-        here = _controlled_here(arms, signals)
+        here = _controlled_here(arms, signals, minis)
         if len(arms) < 3 or not (on_ring or here or sweden or priority_stop_arms(arms, ring)):
             continue
         if not (_owns(box, p[0], p[1])):
             continue
         if put is None:
-            put = junction_controls(arms, k, link_ok, ring, signals, country, priority)
+            put = junction_controls(arms, k, link_ok, ring, signals, country, priority, minis)
         if sweden and not here:
             put = [c for c in put if c[1] != G_SIGNAL]      # (no signals guessed out here)
         if not put:
@@ -1114,7 +1135,7 @@ def place(roads, walks, box, curb_h=0.15, wires=None, town=False, left_hand=Fals
           signals=None, buried=0.0, region=None, lighting=None, country=None, priority=None, ground=None,
           clearance=None, development=None, pole_profile=None, pole_frame=None,
           sign_obstacles=None, defer_gore=False, obstacles=(), mapped_poles=None, de_on=False, de_ctx=None,
-          de_ctl=None, mapped_lamps=None):
+          de_ctl=None, mapped_lamps=None, minis=None):
     """Rows [group, x, y, z, yaw, scale, height, rank] (trees.lua's tile rows) of the lamps and poles of a
     tile box (x0, y0, x1, y1). roads: build_tile's (fid, spec, centreline (k, 3), lon); walks: its sidewalk
     runs (dicts with fid, pts, side, w); decks: the bridge decks over the tile [(centreline (k, 3), half
@@ -1279,7 +1300,7 @@ def place(roads, walks, box, curb_h=0.15, wires=None, town=False, left_hand=Fals
             put(G_BIN, BIN_SPACING, _h01(fid, side, "bin") * BIN_SPACING, 0.7, 1.1,
                 lambda out: _yaw(-out[0], -out[1]), optional=True)
     rows.extend(junction_props(roads, box, curb_h, left_hand, decks, signals, country, priority, ground, clearance,
-                                sign_obstacles=sign_obstacles, de_on=de_on, de_ctx=de_ctx, de_ctl=de_ctl))
+                               sign_obstacles=sign_obstacles, de_on=de_on, de_ctx=de_ctx, de_ctl=de_ctl, minis=minis))
     for fid, spec, line, _ in roads:
         if fid in lit or len(line) < 2:
             continue

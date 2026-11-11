@@ -10208,6 +10208,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     de_ctx = de_ctl = None                      # Germany's junctions (de_on): the tile's roads read once
     line_country = country                      # (designs.context), the line style by its border (markings.style)
     priority = None if nodes is None else nodes["priority"]     # (the map's stop and give-way points)
+    minis = None if nodes is None else nodes.get("mini_roundabouts")   # (the map's mini-roundabout nodes)
     if de_on:
         import designs
         if designs.near(frame, own_box):
@@ -10247,9 +10248,11 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             crosswalk_look = _cx.M15_LOOK
             crosswalks, teeth, jramps = _cx.place(roads, nodes)
             zebras = [(np.array([cw["a"], cw["b"]])[:, :2], cw["w"] / 2) for cw in crosswalks]
-            stops, jlines = _gw.stop_lines(furniture.give_way_arms(roads, signals, country, priority, stops=True),
+            stops, jlines = _gw.stop_lines(furniture.give_way_arms(roads, signals, country, priority, stops=True,
+                                                                   minis=minis),
                                            crosswalks, nodes["stop_lines"], left_hand)
-        m14, gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority), crosswalks, left_hand)
+        m14, gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis),
+                                       crosswalks, left_hand)
         teeth = teeth + m14
         crosswalks = [cw for j, cw in enumerate(crosswalks) if j not in gone] + stops
     elif de_ctx is not None:
@@ -10267,6 +10270,13 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         teeth = teeth + rb_marks
         for fid_, cut_ in rb_cuts.items():
             jlines.setdefault(fid_, []).extend(cut_)
+        # and the mapped mini-roundabouts' give-way lines (junction_controls' minis rule); the guessed signs
+        # elsewhere stay unpainted, as before
+        import furniture
+        import markings as _gw
+        m14, _gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis,
+                                                                only_minis=True), crosswalks, left_hand)
+        teeth = teeth + m14
     # (no curb extensions: they were on every town street with parking, after Fells Point's, and most streets have none:
     # the corners stuck out into the road in Tustin's suburbs, GitHub #208)
     # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a curbed island instead
@@ -10649,7 +10659,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         props.extend(furniture.place(roads, walks, own_box, wires=wires, town=bool(town), left_hand=left_hand,
                                      decks=[(p, h) for p, h, _depth in traffic_decks], clearance=clearance,
                                      signals=signals, buried=buried, region=lamp_region, country=country,
-                                     priority=priority, ground=ground, development=development,
+                                     priority=priority, ground=ground, development=development, minis=minis,
                                      pole_profile=pole_profile, pole_frame=frame, sign_obstacles=sign_obstacles,
                                      defer_gore=detailed_signs, mapped_poles=mapped_poles, mapped_lamps=mapped_lamps,
                                      obstacles=railxing.rail_obstacles(frame, cells, own_box) if railxing.ENABLED else (),

@@ -2140,8 +2140,11 @@ class Server:
             log.debug("navgraph decks: %s: %s", type(e).__name__, e)
         # (Germany's mapped nodes too: its junction signs on, the graph's window in Germany)
         de_nodes = designsmod.reads_here(designsmod.enabled(self.dej_on), anchor.frame, (x - w, y - w, x + w, y + w))
-        nodes = secrossings.read(self.mapdata, anchor.frame, keys) \
-            if secrossings.wanted(self.country(anchor), de_nodes) else None
+        nodes = secrossings.read(self.mapdata, anchor.frame, keys)
+        if nodes is not None and not secrossings.wanted(self.country(anchor), de_nodes):
+            # (outside Sweden and Germany only the mini-roundabouts are the map's everywhere: the mapped
+            # give-way/stop signs stay those countries' experiment)
+            nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": nodes.get("mini_roundabouts")}
         # (and the cells' road_routes for the German junctions' ref ranks, as blockworker.navgraph reads them)
         de_routes = blockworker._de_routes(self.mapdata, keys) if de_nodes else ()
         tun = {}
@@ -2161,7 +2164,8 @@ class Server:
                                   left_hand=self.left_hand(anchor), mph=self.mph(anchor),
                                   signals=furnituremod.signals_for(self.mapdata, anchor.frame, keys),
                                   country=self.country(anchor), priority=None if nodes is None else nodes["priority"],
-                                  de_on=designsmod.enabled(self.dej_on), de_routes=de_routes)
+                                  de_on=designsmod.enabled(self.dej_on), de_routes=de_routes,
+                                  minis=None if nodes is None else nodes.get("mini_roundabouts"))
         cla, clo, _ = anchor.frame.enu_to_geodetic(x, y, 0.0)
         graph["rules"] = navgraphmod.road_rules(navgraphmod.country_at(self.airports_db, float(cla), float(clo), _borders(self)))
         graph["rules"]["de_junctions"] = designsmod.enabled(self.dej_on)
@@ -2712,8 +2716,10 @@ class Server:
         nkeys = roadsmod.cells_of_tile(anchor.frame, tx, ty, blockworker.SIGNALS_MARGIN_M)
         # (Germany's mapped nodes too: its junction signs on, the junctions it decides reach into Germany)
         de_nodes = designsmod.reads_here(designsmod.enabled(self.dej_on), anchor.frame, designsmod.tile_reach(box))
-        sign_nodes = secrossings.read(self.mapdata, anchor.frame, nkeys) \
-            if secrossings.wanted(self.country(anchor), de_nodes) else None
+        sign_nodes = secrossings.read(self.mapdata, anchor.frame, nkeys)
+        if sign_nodes is not None and not secrossings.wanted(self.country(anchor), de_nodes):
+            # (as the navgraph's: outside Sweden and Germany only the mini-roundabouts come from the map)
+            sign_nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": sign_nodes.get("mini_roundabouts")}
         clearance = [] if self.buildings else None     # (build_tile's RoadClearance, PR #629: the powerlines' too)
         roadside_jobs = []
         drives = []

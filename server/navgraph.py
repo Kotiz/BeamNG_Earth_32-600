@@ -350,7 +350,7 @@ def _deck_z(decks, fid, x, y):
 
 
 def build(frame, feats_list, elev, centre, urban_fn=None, window=WINDOW_M, decks=None, tunnels=None, widths=None, left_hand=False,
-          mph=True, signals=None, country=None, priority=None, de_on=False, de_routes=()):
+          mph=True, signals=None, country=None, priority=None, de_on=False, de_routes=(), minis=None):
     """{"nodes": {name: [x, y, z, radius]}, "edges": [[in, out, oneway, lanes_out, lanes_in, speed m/s,
     drivability, radius, (optional portal radius, posted speed, rough-road flag, rumble candidate)]], `lines` for tunnel-only minimap
     stretches as [x1, y1, x2, y2, drivability, posted speed m/s]
@@ -683,7 +683,7 @@ def build(frame, feats_list, elev, centre, urban_fn=None, window=WINDOW_M, decks
     yields, priorities = [], []
     signals = _signals(prop_arms, approaches, nodes, left_hand, set(ring), carriage, signals, country, priority,
                        decks=signal_decks, ground=signal_ground, de_ctx=de_ctx, pieces=pieces, yields=yields,
-                       priorities=priorities)
+                       priorities=priorities, minis=minis)
     if yields:
         _give_way(edges, approaches, yields)
     if priorities:
@@ -998,7 +998,7 @@ def _priority_way(edges, approaches, priorities):
 
 
 def _signals(arms, approaches, nodes, left_hand=False, ring=None, lines=(), signals=None, country=None, priority=None,
-             decks=(), ground=None, de_ctx=None, pieces=None, yields=None, priorities=None):
+             decks=(), ground=None, de_ctx=None, pieces=None, yields=None, priorities=None, minis=None):
     """[{"j": junction node, "kind": "signal" | "stop", "app": [[approach node, x, y, z, dir x, dir y, phase, prop x,
     prop y, prop z, prop yaw]]}] of the urban junctions furniture.junction_controls controls, decided on the arms
     the road tiles' props see (arms) and built for the graph's approaches into them (approaches): per incoming
@@ -1039,14 +1039,14 @@ def _signals(arms, approaches, nodes, left_hand=False, ring=None, lines=(), sign
         else:
             # (road-class right of way, furniture.PRIORITY_STOPS: in the country too, as the road tiles' props)
             prio = furniture.priority_controls(farms[name], ring, signals, country)
-            if not prio and not furniture._controlled_here(farms[name], signals):
+            if not prio and not furniture._controlled_here(farms[name], signals, minis):
                 continue
             put = [(arm, what) for arm, what in furniture.junction_controls(farms[name], None, link_ok, ring=ring,
                                                                              signals=signals, country=country,
-                                                                             priority=priority)
+                                                                             priority=priority, minis=minis)
                    if what != furniture.G_YIELD]    # give-way uses edge priority; a stop controller would force a stop
-            if prio and priorities is not None:
-                priorities.append((name, farms[name]))
+            if prio and priorities is not None and not furniture._mini_here(farms[name], minis):
+                priorities.append((name, farms[name]))      # (a mini-roundabout's circle, not the road classes,
         if not put:
             continue
         kind = "signal" if put[0][1] == furniture.G_SIGNAL else "stop"
