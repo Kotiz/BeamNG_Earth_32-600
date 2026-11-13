@@ -24,6 +24,7 @@ import numpy as np
 
 import furniture
 import junctions
+import revisit
 
 M15, M16 = 1, 2                 # paint: bits of paint()
 CLASSES = ("crossing", "give_way", "stop", "traffic_signals", "mini_roundabout")
@@ -224,13 +225,15 @@ def nodes(frame, infra_list):
 def read(md, frame, keys):
     """nodes of the map cells keys (md: mapdata.MapData), None when their infrastructure cannot be read. The
     mini-roundabouts join from the Layercake file (md.minis): Overture's infrastructure layer has none of them, and
-    a failure there costs only the circles, not the road tile."""
+    a failure there costs only the circles, not the road tile. Either read's failure is a revisit fault: a tile
+    built without the map's crossings or islands would be kept and never built again with them."""
     log = logging.getLogger("earthd.crossings")
     try:
         out = nodes(frame, [md.cell(k, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
                             for k in keys])
     except Exception as e:      # guessed crossings rather than no road tile
         log.debug("crossings: %s: %s", type(e).__name__, e)
+        revisit.fault()         # (a build that goes on without the map's crossings is not kept)
         return None
     try:
         bs = [k.bounds() for k in keys]
@@ -238,6 +241,7 @@ def read(md, frame, keys):
                           max(b[2] for b in bs), max(b[3] for b in bs)))
     except Exception as e:
         log.debug("mini-roundabouts: %s: %s", type(e).__name__, e)
+        revisit.fault()         # (as the crossings': a tile built without its islands would be kept so)
         minis = None
     if out is not None and minis is not None and len(minis):
         global _MINIS_LOGGED
