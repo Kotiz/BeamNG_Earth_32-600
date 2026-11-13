@@ -240,11 +240,18 @@ def read(md, frame, keys):
         log.debug("mini-roundabouts: %s: %s", type(e).__name__, e)
         minis = None
     if out is not None and minis is not None and len(minis):
+        global _MINIS_LOGGED
+        if not _MINIS_LOGGED:
+            _MINIS_LOGGED = True
+            log.info("mini-roundabouts: %d mapped node(s) read from the Layercake file", len(minis))
         e, n, _ = frame.geodetic_to_enu(minis[:, 1], minis[:, 0], 0.0)
         xy = np.column_stack([np.asarray(e), np.asarray(n)])
         got = out.get("mini_roundabouts")
         out["mini_roundabouts"] = xy if got is None or not len(got) else np.vstack([got, xy])
     return out
+
+
+_MINIS_LOGGED = False
 
 
 def _squares(mid, u, n, half, z):
