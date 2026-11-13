@@ -648,12 +648,19 @@ def navgraph(aid, lat, lon, zoom, x, y, out_dir, vfs_dir, serial, left_hand, mph
         de_nodes = designs.reads_here(True, frame, (x - w, y - w, x + w, y + w))
         if de_nodes:
             de_routes = _de_routes(_s.md, keys)
-    nodes = secrossings.read(_s.md, frame, keys) if secrossings.wanted(rules.get("country"), de_nodes) else None
+    nodes = secrossings.read(_s.md, frame, keys)
+    if nodes is not None and not secrossings.wanted(rules.get("country"), de_nodes):
+        # (as earthd's: outside Sweden and Germany the crossings, their refuge islands and the mini-roundabouts
+        # come from the map, the give-way/stop signs do not)
+        nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": nodes.get("mini_roundabouts"),
+                 "crossings": nodes.get("crossings"), "de_crossings": nodes.get("de_crossings"),
+                 "other_crossings": nodes.get("other_crossings"), "islands": nodes.get("islands")}
     graph = navgraphmod.build(frame, feats, elev, (x, y), urban, decks=decks, tunnels=tun, widths=_s.widths,
                               left_hand=left_hand,
                               mph=mph, signals=furniture.signals_for(_s.md, frame, keys), country=rules.get("country"),
                               priority=None if nodes is None else nodes["priority"],
-                              de_on=bool(rules.get("de_junctions")), de_routes=de_routes)
+                              de_on=bool(rules.get("de_junctions")), de_routes=de_routes,
+                              minis=None if nodes is None else nodes.get("mini_roundabouts"))
     graph["rules"] = rules
     path = navgraphmod.write(out_dir, vfs_dir, aid, serial, graph)
     return path, len(graph["nodes"]), len(graph["edges"])
@@ -1088,7 +1095,13 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     if de_junctions:                # into Germany)
         import designs
         de_nodes = designs.reads_here(True, frame, designs.tile_reach(box, skin_margin))
-    nodes = secrossings.read(_s.md, frame, near_cells) if secrossings.wanted(country, de_nodes) else None
+    nodes = secrossings.read(_s.md, frame, near_cells)
+    if nodes is not None and not secrossings.wanted(country, de_nodes):
+        # (as earthd's: outside Sweden and Germany the crossings, their refuge islands and the mini-roundabouts
+        # come from the map, the give-way/stop signs do not)
+        nodes = {"priority": np.zeros((0, 3)), "mini_roundabouts": nodes.get("mini_roundabouts"),
+                 "crossings": nodes.get("crossings"), "de_crossings": nodes.get("de_crossings"),
+                 "other_crossings": nodes.get("other_crossings"), "islands": nodes.get("islands")}
     clearance = [] if buildings else None      # (build_tile's RoadClearance, PR #629: the powerlines' too)
     roadside_jobs = []                  # sign placement after the rendered barriers and driveways
     drives = []

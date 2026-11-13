@@ -49,7 +49,8 @@ def wanted(country, de=False):
     always (its paint and signs are the map's), Germany's when its junction signs are on (de: the setting on and the
     junctions the tile decides, or the graph's window, reaching into Germany: designs.reads_here; the country code
     alone is the nearest airport's). Nowhere else: the crossings, their refuges and the mini-roundabouts are the map's
-    all the same (earthd reads everywhere and keeps those), only the signs fall back to the guesses."""
+    all the same (the tiles read everywhere and keep those, earthd's and the road processes'), only the signs fall
+    back to the guesses."""
     return str(country or "").upper() == "SE" or bool(de)
 
 
