@@ -6241,6 +6241,35 @@ def lane_tag_parts(feats, i):
     return [(0.0, 1.0, railtags.way_id(str(rec[i])) if rec is not None else None, lane_tags(feats, i))]
 
 
+def mini_island_walks(islands, wexact):
+    """[walks] of the mapped mini-roundabouts' islands (furniture.mini_islands): a kerb ring (sett, as a splitter
+    island's, side 1: for a counter-clockwise ring the curb stands at the ring's outside edge and the slab runs
+    inward) round a low cobble dome, clipped to the tile's box as the splitters' are."""
+    import furniture
+    out = []
+    for mi in islands:
+        node, r = np.asarray(mi["node"], np.float64), float(mi["r"])
+        ang = np.arange(furniture.MINI_SEGMENTS + 1) * (2.0 * math.pi / furniture.MINI_SEGMENTS)
+
+        def circle(rad):
+            xy = np.column_stack([node[0] + rad * np.cos(ang), node[1] + rad * np.sin(ang)])
+            return np.column_stack([xy, np.full(len(xy), node[2])])
+        mid = circle(r - furniture.MINI_KERB_W / 2)
+        band = simplify(np.vstack([mid[-1:], mid, mid[:1]]), tol=0.05)
+        for piece in clip_polyline(band, *wexact):
+            run = densify(piece, spacing=2.0)
+            if len(run) >= 2:
+                out.append({"pts": run, "side": 1, "caps": (False, False), "ramps": [], "w": furniture.MINI_KERB_W,
+                            "fid": "mini", "h": furniture.MINI_ISLAND_H, "brick": True, "mat": 7})
+        inner = circle(r - furniture.MINI_KERB_W)
+        if _box_meets(inner, wexact):
+            out.append({"disc": {"ring": inner, "apex": node, "mat": 7,
+                                 "h": furniture.MINI_ISLAND_H + furniture.MINI_KERB_W * 0.015,
+                                 "dome": min(furniture.MINI_DOME_MAX_M, furniture.MINI_DOME_PER_M * r)},
+                        "fid": "mini"})
+    return out
+
+
 def mark_poly(pts):
     """A white painted shape's road chunk: pts (k, 2 or 3), a convex polygon (draped by roadmesh: its z doesn't count)."""
     return {"m": "line_white", "w": 0.0, "tl": EDGE_LINE["tl"], "p": CENTRE["p"], "layer": "mark",
@@ -10254,7 +10283,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         m14, gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis),
                                        crosswalks, left_hand)
         teeth = teeth + m14
-        teeth = teeth + furniture.mini_circles(roads, minis)   # the mapped mini-roundabouts' painted circle
+        walks.extend(mini_island_walks(furniture.mini_islands(roads, minis), wexact))   # the mapped mini-roundabouts' raised islands
         crosswalks = [cw for j, cw in enumerate(crosswalks) if j not in gone] + stops
     elif de_ctx is not None:
         # Germany: each junction's paint as its signs (one decision, designs.decide, shared with furniture.place): the
@@ -10294,7 +10323,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         m14, _gone = _gw.give_way_lines(furniture.give_way_arms(roads, signals, country, priority, minis=minis,
                                                                 only_minis=True), crosswalks, left_hand)
         teeth = teeth + m14
-        teeth = teeth + furniture.mini_circles(roads, minis)   # the mapped mini-roundabouts' painted circle
+        walks.extend(mini_island_walks(furniture.mini_islands(roads, minis), wexact))   # the mapped mini-roundabouts' raised islands
     # (no curb extensions: they were on every town street with parking, after Fells Point's, and most streets have none:
     # the corners stuck out into the road in Tustin's suburbs, GitHub #208)
     # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a curbed island instead

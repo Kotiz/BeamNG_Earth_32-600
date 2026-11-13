@@ -138,28 +138,43 @@ class ReadTest(unittest.TestCase):
         self.assertIsNone(secrossings.read(md, Frame(), [self.cell((0.0, 0.0, 1.0, 1.0))]))
 
 
-class MiniCirclesTest(unittest.TestCase):
-    """The painted circle at a mapped mini-roundabout: centred on the node, sized by the narrowest arm."""
-    def test_a_circle_at_the_mapped_node(self):
-        got = furniture.mini_circles(cross_roads(), HERE)
-        self.assertEqual(len(got), furniture.MINI_SEGMENTS)
-        pts = np.vstack(got)
-        np.testing.assert_allclose(pts[:, 2], 0.0)
-        r = np.hypot(pts[:, 0] - 100.0, pts[:, 1] - 100.0)
-        self.assertAlmostEqual(float(r.min()), 4.5, places=2)   # (width 10: 10 / 2 - 0.5, the band's corner)
-        self.assertAlmostEqual(float(r.max()), 4.5, places=2)
+class MiniIslandsTest(unittest.TestCase):
+    """The raised island at a mapped mini-roundabout: centred on the node, sized by the narrowest arm, a kerb ring
+    (sett) round a low cobble dome instead of paint."""
+    def test_an_island_at_the_mapped_node(self):
+        got = furniture.mini_islands(cross_roads(), HERE)
+        self.assertEqual(len(got), 1)
+        np.testing.assert_allclose(got[0]["node"][:2], [100.0, 100.0])
+        self.assertAlmostEqual(got[0]["r"], 4.5)   # (width 10: 10 / 2 - 0.5)
 
     def test_the_narrowest_arms_width_sizes_it(self):
         roads_ = [road("a", "tertiary", 1, 0, width=6.0), road("b", "tertiary", -1, 0, width=12.0),
                   road("c", "tertiary", 0, 1, width=12.0)]
-        pts = np.vstack(furniture.mini_circles(roads_, HERE))
-        r = np.hypot(pts[:, 0] - 100.0, pts[:, 1] - 100.0)
-        self.assertAlmostEqual(float(r.min()), 2.5, places=1)   # (6 / 2 - 0.5, the band's corner)
+        self.assertAlmostEqual(furniture.mini_islands(roads_, HERE)[0]["r"], 2.5, places=1)   # (6 / 2 - 0.5)
 
     def test_no_junction_or_a_far_node_is_nothing(self):
-        self.assertEqual(furniture.mini_circles([road("a", "tertiary", 1, 0)], HERE), [])
-        self.assertEqual(furniture.mini_circles(cross_roads(), FAR), [])
-        self.assertEqual(furniture.mini_circles(cross_roads(), None), [])
+        self.assertEqual(furniture.mini_islands([road("a", "tertiary", 1, 0)], HERE), [])
+        self.assertEqual(furniture.mini_islands(cross_roads(), FAR), [])
+        self.assertEqual(furniture.mini_islands(cross_roads(), None), [])
+
+    def test_walks_kerb_ring_and_dome(self):
+        walks = roads.mini_island_walks(furniture.mini_islands(cross_roads(), HERE), (-1e3, -1e3, 1e3, 1e3))
+        discs = [w for w in walks if "disc" in w]
+        bands = [w for w in walks if "pts" in w]
+        self.assertEqual(len(discs), 1)
+        self.assertTrue(bands)
+        ring = np.asarray(discs[0]["disc"]["ring"], np.float64)
+        r = np.hypot(ring[:, 0] - 100.0, ring[:, 1] - 100.0)
+        self.assertAlmostEqual(float(r.mean()), 4.5 - furniture.MINI_KERB_W, places=2)
+        self.assertEqual(discs[0]["disc"]["mat"], 7)    # (sett, the cobble dome)
+        self.assertAlmostEqual(discs[0]["disc"]["h"], furniture.MINI_ISLAND_H + furniture.MINI_KERB_W * 0.015)
+        self.assertAlmostEqual(discs[0]["disc"]["dome"], min(furniture.MINI_DOME_MAX_M,
+                                                             furniture.MINI_DOME_PER_M * 4.5))
+        band = np.vstack([np.asarray(w["pts"], np.float64) for w in bands])
+        rb = np.hypot(band[:, 0] - 100.0, band[:, 1] - 100.0)
+        self.assertAlmostEqual(float(rb.mean()), 4.5 - furniture.MINI_KERB_W / 2, places=1)
+        self.assertTrue(all(w["h"] == furniture.MINI_ISLAND_H and w["mat"] == 7 and w["fid"] == "mini"
+                            for w in bands))
 
 
 if __name__ == "__main__":
