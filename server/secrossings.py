@@ -227,6 +227,7 @@ def read(md, frame, keys):
     mini-roundabouts join from the Layercake file (md.minis): Overture's infrastructure layer has none of them, and
     a failure there costs only the circles, not the road tile. Either read's failure is a revisit fault: a tile
     built without the map's crossings or islands would be kept and never built again with them."""
+    global _MINIS_LOGGED, _MINIS_FAIL_LOGGED
     log = logging.getLogger("earthd.crossings")
     try:
         out = nodes(frame, [md.cell(k, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
@@ -242,9 +243,11 @@ def read(md, frame, keys):
     except Exception as e:
         log.debug("mini-roundabouts: %s: %s", type(e).__name__, e)
         revisit.fault()         # (as the crossings': a tile built without its islands would be kept so)
+        if not _MINIS_FAIL_LOGGED:      # (once a session: the console then names why, without --verbose)
+            _MINIS_FAIL_LOGGED = True
+            log.info("mini-roundabouts: the Layercake file did not read (%s: %s)", type(e).__name__, e)
         minis = None
     if out is not None and minis is not None and len(minis):
-        global _MINIS_LOGGED
         if not _MINIS_LOGGED:
             _MINIS_LOGGED = True
             log.info("mini-roundabouts: %d mapped node(s) read from the Layercake file", len(minis))
@@ -256,6 +259,7 @@ def read(md, frame, keys):
 
 
 _MINIS_LOGGED = False
+_MINIS_FAIL_LOGGED = False
 
 
 def _squares(mid, u, n, half, z):
